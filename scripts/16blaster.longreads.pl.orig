@@ -176,7 +176,7 @@ for my $key ( sort {$a<=>$b} keys %hash ) {
 print "\nBlasting clusters and parsing the results...\n";
 my $num_alignments = 250;
 for my $file ( @sorted ) {
-	my $hits = `ncbi-blast-2.2.29+/bin/blastn -task blastn-short -db ncbi-blast-2.2.29+/db/16SMicrobial -query $file -num_threads 9 -outfmt \"7 qacc sallseqid evalue bitscore pident qstart qend sstart send saccver\" -num_alignments $num_alignments | grep -v \"\#\" | perl ./blast_org_annotate2.pl`;
+	my $hits = `ncbi-blast-2.2.29+/bin/blastn -db ncbi-blast-2.2.29+/db/16SMicrobial -query $file -num_threads 9 -outfmt \"7 qacc sallseqid evalue bitscore pident qstart qend sstart send saccver\" -num_alignments $num_alignments | grep -v \"\#\" | perl ./blast_org_annotate2.pl`;
 	#print "hits:\n$hits\n";
 	my @besthits;
 	my @maxhits;

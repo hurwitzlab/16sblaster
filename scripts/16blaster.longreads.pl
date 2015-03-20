@@ -13,6 +13,8 @@ use Getopt::Long;
 use Pod::Usage;
 use Readonly;
 
+my $DEBUG = 0;
+
 main();
 
 # --------------------------------------------------
@@ -34,6 +36,7 @@ sub main {
         'p|percent:f'    => \$percent,
         'l|length:i'     => \$length,
         'g|glob:s'       => \$glob,
+        'debug'          => \$DEBUG,
     ) or pod2usage(2);
 
     if ($help || $man_page) {
@@ -137,6 +140,13 @@ sub process {
             $take,
         );
 
+        my @multi_files = File::Find::Rule->file()->in($multi_dir);
+
+        unless (@multi_files) {
+            say STDERR "No results from 'make_multi_seq.pl', skipping.";
+            next FILE;
+        }
+
         my $contigs_file = catfile($out_dir, $filename . '.contigs.fasta');
         execute("cat $multi_dir/* > $contigs_file");
 
@@ -157,11 +167,12 @@ sub process {
 # --------------------------------------------------
 sub execute {
     my @cmd = @_ or return;
-    say "\n\n>>>>>>\n\n", join(' ', @cmd), "\n\n<<<<<<\n\n";
+    debug("\n\n>>>>>>\n\n", join(' ', @cmd), "\n\n<<<<<<\n\n");
 
     unless (system(@cmd) == 0) {
-        die sprintf("Could not execute command:\n%s\n%s\n", 
-            join(' ', @cmd), $?
+        die sprintf(
+            "FATAL ERROR! Could not execute command:\n%s\n", 
+            join(' ', @cmd)
         );
     }
 }
@@ -402,6 +413,12 @@ sub execute {
 #    system(
 #    "cat $directory/RESULTS/SUMMARYHEADER.txt $directory/RESULTS/*.summary.txt > $directory/RESULTS/SUMMARY.txt"
 #    );
+#
+
+# --------------------------------------------------
+sub debug {
+    say @_ if $DEBUG;
+}
 
 __END__
 
@@ -411,15 +428,15 @@ __END__
 
 =head1 NAME
 
-16blaster.longreads.pl - a script
+16blaster.longreads.pl - short description here
 
 =head1 SYNOPSIS
 
-  16blaster.longreads.pl -i /path/to/fasta-files
+  16blaster.longreads.pl -d /path/to/fasta-files
 
 Required Arguments:
 
-  -d|dir            Directory containing FASTA files processing
+  -d|--dir          Directory containing FASTA files processing
 
 Options:
 
@@ -456,6 +473,8 @@ Options:
   -g|--glob         File pattern glob to find the FASTA files 
                     (default "\*.fasta")
 
+  --debug           Show extra messages
+
   --help            Show brief help and exit
   --man             Show full documentation
 
@@ -479,8 +498,13 @@ amplicons from the FASTA files before using this script.
 
 =head1 AUTHOR
 
-George Watts E<lt>gwatts@email.arizona.eduE<gt>,
-Ken Youens-Clark E<lt>kyclark@email.arizona.eduE<gt>.
+=over 4
+
+=item * George Watts E<lt>gwatts@email.arizona.eduE<gt>
+
+=item * Ken Youens-Clark E<lt>kyclark@email.arizona.eduE<gt>
+
+=back
 
 =head1 COPYRIGHT
 

@@ -1,38 +1,27 @@
-#!/usr/bin/perl
+#!/usr/bin/env perl
 
 use strict;
 use warnings;
-use FileHandle;
+use autodie;
 
-our $MAP_FILE = 'accessions.txt';
+open my $fh, '<', 'accessions.txt';
+my %rh_map = map { chomp; split(/\t/, $_) } <$fh>;
+close $fh;
 
-MAIN_CODE: {
-    my $rh_map = load_map_into_hash();
-    while(<>) {
-	my $i = $_;
-	chomp $i;
-	if ($i =~ /\#/) {
-	    print $i, "\n"; next; #print comment line and move on.
-	}
-	my @i = split(/\t/, $i);
-	my $acc_ver = $i[-1]; #last column should always be acc.ver
-	unless(defined $rh_map->{$acc_ver}) {
-	    die "ERROR: accession, $acc_ver, does not appear to be in map file.  Should not see this.\n";
-	}
-	print $i, "\t", $rh_map->{$acc_ver}, "\n";
+while (my $line = <>) {
+    chomp($line);
+    if ($line =~ /\#/) {
+        print "$line\n";
     }
-}
+    else {
+        my @flds = split(/\t/, $line);
+        my $acc_ver = $flds[-1]; # last column should always be acc.ver
 
-sub load_map_into_hash {
-    my $fh_IN = new FileHandle;
-    $fh_IN->open($MAP_FILE) || die "ERROR: Cannot open mapaccession input file.\n";
-    my %hash;
-    while(<$fh_IN>) {
-	chomp $_;
-	my $i = $_;
-	my @i = split(/\t/, $i);
-	$hash{$i[0]} = $i[1];
+        if (my $val = $rh_map{ $acc_ver }) {
+            print join("\t", $line, $val), "\n";
+        }
+        else {
+            die "ERROR: Accession '$acc_ver' not found!\n";
+        }
     }
-    $fh_IN->close();
-    return \%hash;
 }

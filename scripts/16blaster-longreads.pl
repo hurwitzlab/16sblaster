@@ -489,15 +489,17 @@ __END__
 
 =head1 NAME
 
-16blaster.longreads.pl - short description here
+16blaster-longreads.pl - short description here
 
 =head1 SYNOPSIS
 
-  16blaster.longreads.pl -d /path/to/fasta-files
+  16blaster.longreads.pl -d /path/to/fasta --blast-db /path/to/db
 
 Required Arguments:
 
   -d|--dir          Directory containing FASTA files processing
+
+  --blast-db        Directory containing the BLAST 16s db
 
 Options:
 

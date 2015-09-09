@@ -102,11 +102,6 @@ sub process {
     my $length     = $args{'length'};
     my $blast_db   = $args{'blast_db'};
 
-#    my $command = `ps -o args -C perl`;
-#    $command =~ s/COMMAND\n//;
-#    chomp $command;
-#
-
     if (-d $out_dir) {
         say "Previous '$out_dir' directory deleted.";
         remove_tree($out_dir, { keep_root => 1 });

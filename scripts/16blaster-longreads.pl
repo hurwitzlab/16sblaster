@@ -10,10 +10,8 @@ use File::Basename qw(basename);
 use File::Find::Rule;
 use File::Which qw(which);
 use List::Util qw(max);
-use Perl6::Slurp qw(slurp);
 use Getopt::Long;
 use Pod::Usage;
-use Readonly;
 
 my $DEBUG = 0;
 

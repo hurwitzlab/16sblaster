@@ -1,3 +1,4 @@
 RESULTS
 *.swp
-test.fasta
+*.fasta
+out

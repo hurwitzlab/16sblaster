@@ -160,60 +160,50 @@ sub process {
             qw(-n 9 -d 0 -g 1 -T 8 -M 32000 -s 0.98),
         );
 
+        # While we're in this loop, count the size of the clusters 
+        # (in reads) so we can report that later on
+        open my $clstr_fh, '<', 
+            catfile($out_dir, "$filename.recluster.fasta.clstr");
+
+        my @cluster = <$clstr_fh>;
+        close $clstr_fh;
+
+        my $elementcount = 0;
+        my $number;
+        my $count;
+
+        for my $part (@cluster) {
+            if ($part =~ /^\>/ && $elementcount > 0) {
+                $number = (split /\t/, $cluster[ $elementcount - 1 ])[0];
+                push @arraycounts, $number;
+                $elementcount++;
+                $count++;
+            }
+            else {
+                $elementcount++;
+            }
+        }
+
+        $number = (split(/\t/, $cluster[ $elementcount - 1 ]))[0];
+        push @arraycounts, $number;
+        $count++;    # add the last count to the @arraycounts
+        while ($count > 0) {
+            my $number = $elementcount - scalar(@arraycounts);
+            push @readcounts, $number;
+            $count--;
+        }
+
+        say "Finished clustering '$path'";
         last;
-    }   
-}
-
-# --------------------------------------------------
-sub execute {
-    my @cmd = @_ or return;
-    debug("\n\n>>>>>>\n\n", join(' ', @cmd), "\n\n<<<<<<\n\n");
-
-    unless (system(@cmd) == 0) {
-        die sprintf(
-            "FATAL ERROR! Could not execute command:\n%s\n", 
-            join(' ', @cmd)
-        );
     }
 }
 
-#
-#    #While we're in this loop, count the size of the clusters (in reads) so we can report that later on
-#        open(CLSTR, "<", "$directory\/RESULTS\/$filename.recluster.fasta.clstr")
-#          || die
-#    "\n\nCan't open: \$directory\/RESULTS\/\$filename.recluster.fasta.clstr:$directory\/RESULTS\/$filename.recluster.fasta.clstr";
-#        local $/;
-#        my $clstr = <CLSTR>;
-#        close(CLSTR);
-#        chomp $clstr;
-#        my @cluster = split(/\n/, $clstr);
-#        my $elementcount = 0;
-#        my $number;
-#        my $count;
-#
-#        foreach my $part (@cluster) {
-#            if ($part =~ /^\>/ && $elementcount > 0) {
-#                $number = (split /\t/, $cluster[ $elementcount - 1 ])[0];
-#                push(@arraycounts, $number);
-#                $elementcount++;
-#                $count++;
-#            }
-#            else {
-#                $elementcount++;
-#            }
-#        }
-#        $number = (split(/\t/, $cluster[ $elementcount - 1 ]))[0];
-#        push(@arraycounts, $number);
-#        $count++;    #add the last count to the @arraycounts
-#        while ($count > 0) {
-#            my $number = ($elementcount - (scalar @arraycounts));
-#            push(@readcounts, $number);
-#            $count = ($count - 1);
-#        }
-#        print "\tDone Clustering $filepath\n";
-#    }
-#
-#    #After two rounds of clustering we have a fasta file of representative reads, make a .sta (just a fasta with one read) file for each one so they can be blasted one at a time...
+
+    #
+    # After two rounds of clustering we have a fasta file of
+    # representative reads, make a .sta (just a fasta with one read)
+    # file for each one so they can be blasted one at a time...
+    #
 #    @filepath = <$directory/RESULTS/*.recluster.fasta>;
 #    my $i = 0;
 #    my $readID;
@@ -413,6 +403,21 @@ sub execute {
 #    system(
 #    "cat $directory/RESULTS/SUMMARYHEADER.txt $directory/RESULTS/*.summary.txt > $directory/RESULTS/SUMMARY.txt"
 #    );
+#
+
+# --------------------------------------------------
+sub execute {
+    my @cmd = @_ or return;
+    debug("\n\n>>>>>>\n\n", join(' ', @cmd), "\n\n<<<<<<\n\n");
+
+    unless (system(@cmd) == 0) {
+        die sprintf(
+            "FATAL ERROR! Could not execute command:\n%s\n", 
+            join(' ', @cmd)
+        );
+    }
+}
+
 #
 
 # --------------------------------------------------

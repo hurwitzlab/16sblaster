@@ -3,8 +3,22 @@
 use strict;
 use warnings;
 use autodie;
+use Getopt::Long 'GetOptions';
 
-open my $fh, '<', 'accessions.txt';
+my $accessions = '';
+GetOptions(
+    'accessions=s' => \$accessions
+);
+
+unless ($accessions) {
+    die "Missing -a (accesssions file) argument\n";
+}
+
+unless (-s $accessions) {
+    die "Bad accesssions file ($accessions)\n";
+}
+
+open my $fh, '<', $accessions;
 my %rh_map = map { chomp; split(/\t/, $_) } <$fh>;
 close $fh;
 

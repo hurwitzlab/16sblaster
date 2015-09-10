@@ -1,9 +1,9 @@
 #!/usr/bin/env perl
 
-use common::sense;
+use strict;
 use autodie;
+use feature 'say';
 use Cwd qw(cwd);
-use Data::Dump qw(dump);
 use File::Spec::Functions qw(canonpath catdir catfile);
 use File::Path qw(make_path remove_tree);
 use File::Basename qw(basename);
@@ -19,13 +19,14 @@ main();
 
 # --------------------------------------------------
 sub main {
-    my $in_dir     = '';
-    my $blast_db   = '';
-    my $out_dir    = catdir(cwd(), 'RESULTS');
-    my $similarity = 0.98;
-    my $percent    = 0.01;
-    my $length     = 25;
-    my $glob       = '*.fasta';
+    my $in_dir          = '';
+    my $blast_db        = '';
+    my $out_dir         = catdir(cwd(), 'RESULTS');
+    my $similarity      = 0.98;
+    my $percent         = 0.01;
+    my $length          = 25;
+    my $glob            = '*.fasta';
+    my $accessions_file = '';
     my ($help, $man_page);
 
     GetOptions(
@@ -38,6 +39,7 @@ sub main {
         'l|length:i'     => \$length,
         'g|glob:s'       => \$glob,
         'b|blast-db=s'   => \$blast_db,
+        'accessions=s'   => \$accessions_file,
         'debug'          => \$DEBUG,
     ) or pod2usage(2);
 
@@ -63,8 +65,12 @@ sub main {
         pod2usage('Missing --blast-db argument');
     }
 
-    unless (-s $blast_db) {
-        pod2usage("Bad --blast-db ($blast_db)");
+    unless ($accessions_file) {
+        die "Missing --accesssions file argument\n";
+    }
+
+    unless (-s $accessions_file) {
+        die "Bad accesssions file ($accessions_file)\n";
     }
 
     my @files = File::Find::Rule->file()->name($glob)->in($in_dir)
@@ -86,7 +92,10 @@ sub main {
         percent    => $percent,
         length     => $length,
         blast_db   => $blast_db,
+        accessions => $accessions_file,
     );
+
+    say "Done.";
 }
 
 # --------------------------------------------------
@@ -116,7 +125,7 @@ sub process {
     FILE:
     for my $path (@$files) {
         my $filename = basename($path);
-        my $out_file = catfile($out_dir, $filename);
+        (my $out_file = $filename) =~ s/\.fasta$/.clustered.fasta/;
         my $num_seqs = `grep '>' $path | wc -l`;
 
         unless ($num_seqs > 0) {
@@ -127,21 +136,21 @@ sub process {
         printf "%5d: cd-hit-est '%s' -> '%s'\n", ++$i, $filename, $out_file;
 
         execute(
-            'cd-hit-est',
+            which('cd-hit-est'),
             '-i', $path, 
-            '-o', $out_file, 
+            '-o', catfile($out_dir, $out_file), 
             '-c', $similarity, 
             '-l', $length, 
             qw(-n 9 -d 0 -g 1 -T 8 -M 32000 -s 0.98)
         );
 
         my $take      = int($num_seqs * $percent);
-        my $multi_dir = catdir($out_dir, $filename . "MAKEMULTI$take");
+        my $multi_dir = catdir($out_dir, $out_file . "MAKEMULTI$take");
 
         execute(
-            'make_multi_seq.pl',
+            which('make_multi_seq.pl'),
             $path,
-            catfile($out_dir, $filename . '.clstr'),
+            catfile($out_dir, $out_file . '.clstr'),
             $multi_dir,
             $take,
         );
@@ -153,12 +162,14 @@ sub process {
             next FILE;
         }
 
-        my $contigs_file = catfile($out_dir, $filename . '.contigs.fasta');
+        my $contigs_file = catfile($out_dir, $out_file . '.contigs.fasta');
         execute("cat $multi_dir/* > $contigs_file");
 
-        my $reclustered_file = catfile($out_dir, $filename . '.reclustered');
+        my $reclustered_file = 
+            catfile($out_dir, $out_file . '.recluster.fasta');
+
         execute(
-            'cd-hit-est',
+            which('cd-hit-est'),
             '-i', $contigs_file,
             '-o', $reclustered_file,
             '-c', $similarity,
@@ -170,7 +181,9 @@ sub process {
         # While we're in this loop, count the size of the clusters (in
         # reads) so we can report that later on
         #
-        my $cluster_file = catfile($out_dir, "$filename.recluster.fasta.clstr");
+        my $cluster_file = "$reclustered_file.clstr";
+
+        debug("opening clusterfile '$cluster_file'");
 
         unless (-e $cluster_file) {
             say "Cannot find expected cluster file '$cluster_file'";
@@ -214,7 +227,9 @@ sub process {
     # time...
     #
     my @reclustered =
-        File::Find::Rule->file()->name('*.reclustered.fasta')->in($out_dir);
+        File::Find::Rule->file()->name('*.recluster.fasta')->in($out_dir)
+        or die "Cannot find any '.recluster.fasta' files in out dir '$out_dir'";
+
     my $read_num = 0;
     my @read_ids = ();
 
@@ -226,9 +241,9 @@ sub process {
             next unless $rec;
             my ($read_id, @seq) = split(/\n/, $rec);
             push @read_ids, $read_id;
-            my $out_name = join('.', $file, $i, $read_id, 'sta');
+            my $out_name = join('.', basename($file), $i, $read_id, 'sta');
             open my $out, '>', catfile($out_dir, $out_name);
-            print $out, join("\n", ">$out_name", join('', @seq), '');
+            print $out join("\n", ">$out_name", join('', @seq), '');
             close $out;
             $i++;
         }
@@ -256,17 +271,21 @@ sub process {
 
     for my $file (@sorted) {
         my $cmd = join(' ',
-            'blastn',
+            which('blastn'),
             '-db', $blast_db,
             '-query', $file, 
             '-num_threads', '9',
             '-outfmt', '"7 qacc sallseqid evalue bitscore pident qstart '
                      . 'qend sstart send saccver"',
             '-num_alignments', $num_alignments,
-            'grep -v "#" | perl ./blast_org_annotate2.pl'
+            '| grep -v "#" | perl', 
+            which('blast_org_annotate2.pl'),
+            '-a', $args{'accessions'}
         );
-        my $hits = `$cmd`;
 
+        debug($cmd);
+
+        my $hits = `$cmd`;
         debug("hits: $hits");
 
         my @besthits;
@@ -290,7 +309,7 @@ sub process {
             open my $fh, '<', $file;
             my @contents = <$fh>;
             close $fh;
-            $sequence = @contents[1] or die 'No sequence';
+            $sequence = $contents[1] or die 'No sequence';
 
             #
             # Add a header indicating the file we are reporting on, 
@@ -314,39 +333,38 @@ sub process {
                     my @results = split(/\t/, $blastlines[$y]);
                     push(@maxhits, $results[10]);
                     if ($pidents[$y] >= 98.00) {
-                        push(@besthits,
+                        push @besthits,
                             "\nFound bitscore ",
                             $results[3],
                             " with ",
                             $results[4],
                             "% match at the species level (>98%) with: ",
-                            "\t$results[10]\taccession: $results[9]");
+                            "\t$results[10]\taccession: $results[9]";
                     }
                     else {
-                        push(@besthits,
+                        push @besthits,
                             "\nFound bitscore ",
                             $results[3],
                             " with ",
                             $results[4],
                             "% match at the Genus level (i.e. <98%) with: ",
-                            "\t$results[10]\taccession: $results[9]");
+                            "\t$results[10]\taccession: $results[9]";
                     }
                 }
-                $y++;
-                foreach my $result (@maxhits) {
-                    my $genus = (split / /, $result)[0];
 
-                    #$genus = $genus.",";
-                    my $species = (split / /, $result)[1];
-                    my $genusspecies = join " ", $genus, $species;
-                    if (not $genus ~~ @genuslist) {
-                        push(@genuslist,   $genus);
-                        push(@specieslist, $species);
+                $y++;
+                for my $result (@maxhits) {
+                    my $genus        = (split / /, $result)[0];
+                    my $species      = (split / /, $result)[1];
+                    my $genusspecies = join ' ', $genus, $species;
+
+                    if (!elem($genus, \@genuslist)) {
+                        push @genuslist,   $genus;
+                        push @specieslist, $species;
                     }
-                    elsif (not $species ~~ @specieslist) {
-                        push(@specieslist, $species);
+                    elsif (!elem($species, \@specieslist)) {
+                        push @specieslist, $species;
                     }
-                    else { }
                 }
             }
         }
@@ -372,12 +390,14 @@ sub process {
             shift @read_ids;
         }
 
-        open my $results_fh, '>', catfile($out_dir, "$file.besthits.txt");
+        open my $results_fh, '>', 
+            catfile($out_dir, basename($file) . '.besthits.txt');
         print $results_fh "@besthits";
         close $results_fh;
 
-        open my $summary_fh, '>', catfile($out_dir, "$file.summary.txt");
-        my @array = split /.clustered.fasta.recluster.fasta./, $file;
+        open my $summary_fh, '>', 
+            catfile($out_dir, basename($file) . '.summary.txt');
+        my @array = split /.clustered.fasta.recluster.fasta./, basename($file);
         my $sample        = $array[0];
         my $clusternumber = (split /\./, $array[1])[0];
         my $readID2       = (split /\./, $array[1])[1];
@@ -456,8 +476,20 @@ sub process {
         "cat $out_dir/SUMMARYHEADER.txt $out_dir/*.summary.txt > " .
         "$out_dir/SUMMARY.txt"
     ) {
-        system($cmd) == 0 or die $?;
+        system($cmd) == 0 or warn($?);
     }
+}
+
+# --------------------------------------------------
+sub elem {
+    my ($item, $array) = @_;
+    for my $member (@$array) {
+        if ($item eq $member) {
+            return 1;
+        }
+    }
+
+    return 0;
 }
 
 # --------------------------------------------------
@@ -491,13 +523,16 @@ __END__
 
 =head1 SYNOPSIS
 
-  16blaster.longreads.pl -d /path/to/fasta --blast-db /path/to/db
+  16blaster-longreads.pl -d /path/to/fasta \
+    --blast-db /path/to/db --accessions /path/to/accessions
 
 Required Arguments:
 
   -d|--dir          Directory containing FASTA files processing
 
   --blast-db        Directory containing the BLAST 16s db
+
+  --accessions      Path to accessions file
 
 Options:
 

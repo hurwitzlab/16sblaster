@@ -1,4 +1,4 @@
-#!usr/bin/perl
+#!/usr/bin/env perl
 use strict;
 use warnings;
 use Getopt::Long;
@@ -102,13 +102,13 @@ my @readcounts;
 for my $filepath ( @filepath ) {
 	$filename = $filepath; $filename =~ s/$directory\///; $filename =~ s/.fasta/.clustered.fasta/;
 	print "\n\tClustering:\t\t$filepath in cd-hit-est.\n\tSending output to:\t$directory\/RESULTS\/$filename\n";
-	`cd-hit-v4.6.1-2012-08-27/cd-hit-est -i $filepath -o $directory\/RESULTS\/$filename -c $similarity -n 9 -d 0 -g 1 -T 8 -l $length -M 32000 -s 0.98`;
+	`cd-hit-est -i $filepath -o $directory\/RESULTS\/$filename -c $similarity -n 9 -d 0 -g 1 -T 8 -l $length -M 32000 -s 0.98`;
 	my $numlines = int(( split (/ /, `wc -l $filepath`))[0] / ( 2*( 1/$percent ))); #use the number of reads in the fasta file to limit the clusters analyzed to those containing a certain percentage of total reads
-	`cd-hit-v4.6.1-2012-08-27/make_multi_seq.pl $filepath $directory\/RESULTS\/$filename.clstr $directory\/RESULTS\/$filename.MAKEMULTI$numlines $numlines`;
+	`make_multi_seq.pl $filepath $directory\/RESULTS\/$filename.clstr $directory\/RESULTS\/$filename.MAKEMULTI$numlines $numlines`;
 	system ( "cat $directory\/RESULTS\/$filename.MAKEMULTI$numlines\/* > $directory\/RESULTS\/$filename.contigs.fasta" );
-	`cd-hit-v4.6.1-2012-08-27/cd-hit-est -i $directory/RESULTS/$filename.contigs.fasta -o $directory\/RESULTS\/$filename.recluster.fasta -c $similarity -n 9 -d 0 -g 1 -T 8 -l $length -M 32000 -s 0.98`;
+	`cd-hit-est -i $directory/RESULTS/$filename.contigs.fasta -o $directory\/RESULTS\/$filename.recluster.fasta -c $similarity -n 9 -d 0 -g 1 -T 8 -l $length -M 32000 -s 0.98`;
 	#While we're in this loop, count the size of the clusters (in reads) so we can report that later on
-	open( CLSTR, "<", "$directory\/RESULTS\/$filename.recluster.fasta.clstr" ) || die "\n\nCan't open: \$directory\/RESULTS\/\$filename.recluster.fasta.clstr:$directory\/RESULTS\/$filename.recluster.fasta.clstr";
+	open( CLSTR, "<", "$directory\/RESULTS\/$filename.recluster.fasta.clstr" ) || die "\n\nCan't open: $directory\/RESULTS\/$filename.recluster.fasta.clstr";
 	local $/;
 	my $clstr = <CLSTR>;
 	close (CLSTR);
@@ -176,7 +176,7 @@ for my $key ( sort {$a<=>$b} keys %hash ) {
 print "\nBlasting clusters and parsing the results...\n";
 my $num_alignments = 250;
 for my $file ( @sorted ) {
-	my $hits = `ncbi-blast-2.2.29+/bin/blastn -db ncbi-blast-2.2.29+/db/16SMicrobial -query $file -num_threads 9 -outfmt \"7 qacc sallseqid evalue bitscore pident qstart qend sstart send saccver\" -num_alignments $num_alignments | grep -v \"\#\" | perl ./blast_org_annotate2.pl`;
+	my $hits = `blastn -db /data/blast/16SMicrobial -query $file -num_threads 9 -outfmt \"7 qacc sallseqid evalue bitscore pident qstart qend sstart send saccver\" -num_alignments $num_alignments | grep -v \"\#\" | perl /usr/local/bin/blast_org_annotate2.pl -a /data/accession_organism_map.txt`;
 	#print "hits:\n$hits\n";
 	my @besthits;
 	my @maxhits;

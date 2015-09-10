@@ -26,6 +26,7 @@ sub main {
     my $percent         = 0.01;
     my $length          = 25;
     my $glob            = '*.fasta';
+    my $species_hit_val = 98;
     my $accessions_file = '';
     my ($help, $man_page);
 
@@ -40,6 +41,7 @@ sub main {
         'g|glob:s'       => \$glob,
         'b|blast-db=s'   => \$blast_db,
         'accessions=s'   => \$accessions_file,
+        'species-hit:i'  => \$species_hit_val,
         'debug'          => \$DEBUG,
     ) or pod2usage(2);
 
@@ -85,14 +87,15 @@ sub main {
     }
 
     process(
-        out_dir    => $out_dir, 
-        in_dir     => $in_dir, 
-        files      => \@files,
-        similarity => $similarity,
-        percent    => $percent,
-        length     => $length,
-        blast_db   => $blast_db,
-        accessions => $accessions_file,
+        out_dir         => $out_dir,
+        in_dir          => $in_dir,
+        files           => \@files,
+        similarity      => $similarity,
+        percent         => $percent,
+        length          => $length,
+        blast_db        => $blast_db,
+        accessions      => $accessions_file,
+        species_hit_val => $species_hit_val,
     );
 
     say "Done.";
@@ -100,14 +103,15 @@ sub main {
 
 # --------------------------------------------------
 sub process {
-    my %args       = @_;
-    my $in_dir     = $args{'in_dir'};
-    my $out_dir    = $args{'out_dir'};
-    my $files      = $args{'files'};
-    my $similarity = $args{'similarity'};
-    my $percent    = $args{'percent'};
-    my $length     = $args{'length'};
-    my $blast_db   = $args{'blast_db'};
+    my %args            = @_;
+    my $in_dir          = $args{'in_dir'};
+    my $out_dir         = $args{'out_dir'};
+    my $files           = $args{'files'};
+    my $similarity      = $args{'similarity'};
+    my $percent         = $args{'percent'};
+    my $length          = $args{'length'};
+    my $blast_db        = $args{'blast_db'};
+    my $species_hit_val = $args{'species_hit_val'};
 
     if (-d $out_dir) {
         say "Previous '$out_dir' directory deleted.";
@@ -230,8 +234,9 @@ sub process {
         File::Find::Rule->file()->name('*.recluster.fasta')->in($out_dir)
         or die "Cannot find any '.recluster.fasta' files in out dir '$out_dir'";
 
-    my $read_num = 0;
-    my @read_ids = ();
+    my $read_num  = 0;
+    my @read_ids  = ();
+    my @sta_files = ();
 
     for my $file (@reclustered) {
         open my $fh, '<', $file;
@@ -239,28 +244,16 @@ sub process {
         while (my $rec = <$fh>) { 
             chomp($rec);
             next unless $rec;
-            my ($read_id, @seq) = split(/\n/, $rec);
+            my ($read_id, @seq) = split /\n/, $rec;
             push @read_ids, $read_id;
-            my $out_name = join('.', basename($file), $i, $read_id, 'sta');
-            open my $out, '>', catfile($out_dir, $out_name);
+            my $out_name = join '.', basename($file), $i, $read_id, 'sta';
+            my $sta_name = catfile($out_dir, $out_name);
+            open my $out, '>', $sta_name;
             print $out join("\n", ">$out_name", join('', @seq), '');
             close $out;
+            push @sta_files, $sta_name;
             $i++;
         }
-    }
-
-    my %hash;
-    for my $file (
-        File::Find::Rule->file()->name('*.sta')->in($out_dir)
-    ) {
-        my $key        = (split /\./,   $file)[6];
-        my $samplename = (split /\/|_/, $file)[2];
-        $hash{ $key } = "$file";
-    }
-
-    my @sorted;
-    for my $key (sort { $a <=> $b } keys %hash) {
-        push @sorted, $hash{ $key };
     }
 
     #
@@ -269,14 +262,14 @@ sub process {
     print "\nBlasting clusters and parsing the results...\n";
     my $num_alignments = 250;
 
-    for my $file (@sorted) {
+    for my $file (@sta_files) {
         my $cmd = join(' ',
             which('blastn'),
-            '-db', $blast_db,
-            '-query', $file, 
-            '-num_threads', '9',
-            '-outfmt', '"7 qacc sallseqid evalue bitscore pident qstart '
-                     . 'qend sstart send saccver"',
+            '-db'            , $blast_db,
+            '-query'         , $file, 
+            '-num_threads'   , '9',
+            '-outfmt'        , '"7 qacc sallseqid evalue bitscore pident '
+                             . 'qstart qend sstart send saccver"',
             '-num_alignments', $num_alignments,
             '| grep -v "#" | perl', 
             which('blast_org_annotate2.pl'),
@@ -297,6 +290,7 @@ sub process {
         if (defined $hits && $hits ne '') {
             my (@pidents, @bitscores);
             my @blastlines = split(/\n/, $hits);
+
             for my $blastline (@blastlines) {
                 my @res = split(/\t/, $blastline);
                 push @pidents,   $res[4];
@@ -331,14 +325,15 @@ sub process {
             while ($y < $bitscoresize) {
                 if ($bitscores[$y] == $max) {
                     my @results = split(/\t/, $blastlines[$y]);
-                    push(@maxhits, $results[10]);
-                    if ($pidents[$y] >= 98.00) {
+                    push @maxhits, $results[10];
+
+                    if ($pidents[$y] >= $species_hit_val) {
                         push @besthits,
                             "\nFound bitscore ",
                             $results[3],
                             " with ",
                             $results[4],
-                            "% match at the species level (>98%) with: ",
+                            "% match at the species level (>${species_hit_val}%) with: ",
                             "\t$results[10]\taccession: $results[9]";
                     }
                     else {
@@ -347,7 +342,7 @@ sub process {
                             $results[3],
                             " with ",
                             $results[4],
-                            "% match at the Genus level (i.e. <98%) with: ",
+                            "% match at the Genus level (i.e. <${species_hit_val}%) with: ",
                             "\t$results[10]\taccession: $results[9]";
                     }
                 }
@@ -568,6 +563,10 @@ Options:
 
   -g|--glob         File pattern glob to find the FASTA files 
                     (default "\*.fasta")
+
+  --species-hit     Floating-point value to determine percent identity
+                    for a read to be considered a species hit 
+                    (default 98 = 98%)
 
   --debug           Show extra messages
 

@@ -1,6 +1,8 @@
 #!/usr/bin/env perl
+
 use strict;
 use warnings;
+use Data::Dumper 'Dumper';
 use Getopt::Long;
 
 my $help = '';
@@ -106,8 +108,10 @@ for my $filepath ( @filepath ) {
 	my $numlines = int(( split (/ /, `wc -l $filepath`))[0] / ( 2*( 1/$percent ))); #use the number of reads in the fasta file to limit the clusters analyzed to those containing a certain percentage of total reads
 	`make_multi_seq.pl $filepath $directory\/RESULTS\/$filename.clstr $directory\/RESULTS\/$filename.MAKEMULTI$numlines $numlines`;
 	system ( "cat $directory\/RESULTS\/$filename.MAKEMULTI$numlines\/* > $directory\/RESULTS\/$filename.contigs.fasta" );
+	print "cd-hit-est -i $directory/RESULTS/$filename.contigs.fasta -o $directory\/RESULTS\/$filename.recluster.fasta -c $similarity -n 9 -d 0 -g 1 -T 8 -l $length -M 32000 -s 0.98\n";
 	`cd-hit-est -i $directory/RESULTS/$filename.contigs.fasta -o $directory\/RESULTS\/$filename.recluster.fasta -c $similarity -n 9 -d 0 -g 1 -T 8 -l $length -M 32000 -s 0.98`;
 	#While we're in this loop, count the size of the clusters (in reads) so we can report that later on
+    print "cluster file = '$directory\/RESULTS\/$filename.recluster.fasta.clstr'\n";
 	open( CLSTR, "<", "$directory\/RESULTS\/$filename.recluster.fasta.clstr" ) || die "\n\nCan't open: $directory\/RESULTS\/$filename.recluster.fasta.clstr";
 	local $/;
 	my $clstr = <CLSTR>;
@@ -130,6 +134,8 @@ for my $filepath ( @filepath ) {
 	}
 	$number = ( split (/\t/, $cluster[$elementcount-1]))[0];
 	push ( @arraycounts, $number ); $count++; #add the last count to the @arraycounts			
+
+    print "count = $count, elementcount = $elementcount, arraycounts = ", scalar @arraycounts, "\n";
 	while ( $count > 0 ) {
 		my $number = ( $elementcount - ( scalar @arraycounts ));
 		push ( @readcounts, $number );
@@ -137,6 +143,9 @@ for my $filepath ( @filepath ) {
 	}
 	print "\tDone Clustering $filepath\n";
 }
+
+print "readcounts = ", Dumper(\@readcounts), "\n";
+print "arraycounts = ", Dumper(\@arraycounts), "\n";
 
 
 #After two rounds of clustering we have a fasta file of representative reads, make a .sta (just a fasta with one read) file for each one so they can be blasted one at a time...

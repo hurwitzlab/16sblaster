@@ -18,5 +18,5 @@ To build:
 To run:
 
     docker run --rm -v $(pwd):/work -w /work 16sblaster \
-    --blast-db /data/blast -d fasta -o out \
+    --blast-db /data/blast/16SMicrobial -d fasta -o out \
     --accessions /data/accession_organism_map.txt

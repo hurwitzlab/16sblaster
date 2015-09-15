@@ -4,6 +4,7 @@ use strict;
 use autodie;
 use feature 'say';
 use Cwd qw(cwd);
+use Data::Dumper qw(Dumper);
 use File::Spec::Functions qw(canonpath catdir catfile);
 use File::Path qw(make_path remove_tree);
 use File::Basename qw(basename);
@@ -75,6 +76,8 @@ sub main {
         die "Bad accesssions file ($accessions_file)\n";
     }
 
+    my $accessions = get_accessions($accessions_file);
+
     my @files = File::Find::Rule->file()->name($glob)->in($in_dir)
         or die "Cannot find any '$glob' files in '$in_dir'\n";
 
@@ -94,7 +97,7 @@ sub main {
         percent         => $percent,
         length          => $length,
         blast_db        => $blast_db,
-        accessions      => $accessions_file,
+        accessions      => $accessions,
         species_hit_val => $species_hit_val,
     );
 
@@ -112,6 +115,7 @@ sub process {
     my $length          = $args{'length'};
     my $blast_db        = $args{'blast_db'};
     my $species_hit_val = $args{'species_hit_val'};
+    my $accessions      = $args{'accessions'};
 
     if (-d $out_dir) {
         say "Previous '$out_dir' directory deleted.";
@@ -195,28 +199,24 @@ sub process {
         }
 
         open my $CLSTR_FH, '<', $cluster_file;
-        chomp(my @clusters = <$CLSTR_FH>);
-        close $CLSTR_FH;
-        my $element_count = 0;
-        my $count;
+        chomp(my @lines = <$CLSTR_FH>);
+        my $count = 0;
+        my $linecount = $#lines;
+        for my $i (1..$linecount) {
+            my $line = $lines[$i];
+            if ($line =~ /^>/) {
+                debug("line ($line)");
+                my $best_read = $lines[$i - 1];
+                debug("best read ($best_read)");
+                push @arraycounts, (split /\t/, $best_read)[0]; # read count
 
-        for my $line (@clusters) {
-            $element_count++;
-
-            if (
-                ($line =~ /^\>/ && $element_count > 1) # not the first
-                ||                                     # or
-                $element_count == scalar @clusters     # EOF
-            ) {
-                # look at previous line
-                my $number = (split /\t/, $clusters[ $element_count - 1 ])[0];
-                push @arraycounts, $number;
                 $count++;
             }
         }
+        close $CLSTR_FH;
 
         while ($count > 0) {
-            my $number = ($element_count - (scalar @arraycounts));
+            my $number = ($linecount - (scalar @arraycounts));
             push @readcounts, $number;
             $count--;
         }
@@ -244,17 +244,24 @@ sub process {
         while (my $rec = <$fh>) { 
             chomp($rec);
             next unless $rec;
+
             my ($read_id, @seq) = split /\n/, $rec;
             push @read_ids, $read_id;
+
             my $out_name = join '.', basename($file), $i, $read_id, 'sta';
             my $sta_name = catfile($out_dir, $out_name);
+
             open my $out, '>', $sta_name;
             print $out join("\n", ">$out_name", join('', @seq), '');
             close $out;
+
             push @sta_files, $sta_name;
             $i++;
         }
     }
+
+    debug("arraycounts = ", Dumper(\@arraycounts));
+    debug("readcounts = ", Dumper(\@readcounts));
 
     #
     # Blast each of the .sta files
@@ -271,15 +278,18 @@ sub process {
             '-outfmt'        , '"7 qacc sallseqid evalue bitscore pident '
                              . 'qstart qend sstart send saccver"',
             '-num_alignments', $num_alignments,
-            '| grep -v "#" | perl', 
-            which('blast_org_annotate2.pl'),
-            '-a', $args{'accessions'}
         );
 
         debug($cmd);
 
-        my $hits = `$cmd`;
-        debug("hits: $hits");
+        my @hits =
+            map  { push @$_, $accessions->{$_->[-1]} || 'Not found'; $_ }
+            map  { [ split(/\t/, $_) ] }
+            grep { !/^\s*#/ }
+            map  { chomp; $_ }
+            `$cmd`;
+
+        debug("hits: ", Dumper(\@hits));
 
         my @besthits;
         my @maxhits;
@@ -287,14 +297,12 @@ sub process {
         my @specieslist;
         my $sequence = '';
 
-        if (defined $hits && $hits ne '') {
+        if (@hits) {
             my (@pidents, @bitscores);
-            my @blastlines = split(/\n/, $hits);
 
-            for my $blastline (@blastlines) {
-                my @res = split(/\t/, $blastline);
-                push @pidents,   $res[4];
-                push @bitscores, $res[3];
+            for my $hit (@hits) {
+                push @pidents,   $hit->[4];
+                push @bitscores, $hit->[3];
             }
 
             my $max          = max(@bitscores);
@@ -324,26 +332,28 @@ sub process {
             my $y = 0;
             while ($y < $bitscoresize) {
                 if ($bitscores[$y] == $max) {
-                    my @results = split(/\t/, $blastlines[$y]);
-                    push @maxhits, $results[10];
+                    my $hit_info = $hits[$y];
+                    push @maxhits, $hit_info->[10];
 
                     if ($pidents[$y] >= $species_hit_val) {
                         push @besthits,
                             "\nFound bitscore ",
-                            $results[3],
+                            $hit_info->[3],
                             " with ",
-                            $results[4],
-                            "% match at the species level (>${species_hit_val}%) with: ",
-                            "\t$results[10]\taccession: $results[9]";
+                            $hit_info->[4],
+                            "% match at the species level ",
+                            "(>${species_hit_val}%) with: ",
+                            "\t$hit_info->[10]\taccession: $hit_info->[9]";
                     }
                     else {
                         push @besthits,
                             "\nFound bitscore ",
-                            $results[3],
+                            $hit_info->[3],
                             " with ",
-                            $results[4],
-                            "% match at the Genus level (i.e. <${species_hit_val}%) with: ",
-                            "\t$results[10]\taccession: $results[9]";
+                            $hit_info->[4],
+                            "% match at the Genus level ",
+                            "(i.e. <${species_hit_val}%) with: ",
+                            "\t$hit_info->[10]\taccession: $hit_info->[9]";
                     }
                 }
 
@@ -500,6 +510,14 @@ sub execute {
     }
 }
 
+# --------------------------------------------------
+sub get_accessions {
+    my $file = shift;
+    open my $fh, '<', $file;
+    my %map = map { chomp; split(/\t/, $_) } <$fh>;
+    close $fh;
+    return \%map;
+}
 
 # --------------------------------------------------
 sub debug {
